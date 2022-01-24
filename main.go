@@ -12,8 +12,8 @@ const (
 )
 
 func main() {
-	u := &User{}
-	if err := getInfoFromFile(u, defaultPath); err != nil {
+	u := User{}
+	if err := getInfoFromFile(&u, defaultPath); err != nil {
 		log.Fatal(err)
 	}
 }
