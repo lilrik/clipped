@@ -1,7 +1,11 @@
 package main
 
 type User struct {
-	Name     string         `json: "name"`
-	Password string         `json: "password"`
-	Classes  map[string]int `json: "classes"`
+	// authentication
+	Name     string `json: "name"`
+	Password string `json: "password"`
+
+	// url fields
+	Number  int            `json: "number"`
+	Classes map[string]int `json: "classes"`
 }
