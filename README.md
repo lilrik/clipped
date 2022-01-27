@@ -1,6 +1,3 @@
-# clipped
-Simple scrapper for CLIP-FCT classes' docs
-
 ## For whom
 Only useful for FCT-UNL students.
 

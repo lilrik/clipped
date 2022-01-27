@@ -1,5 +1,6 @@
 *.json
 *.sh
 *.swp
+docs/*
 .DS_Store
 TODO
