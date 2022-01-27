@@ -1,89 +1,171 @@
 package main
 
 import (
-	"net/http"
-	"net/url"
 	"encoding/json"
 	"fmt"
-	"os"
 	"io"
+	"net/http"
+	"net/url"
+	"os"
 	"regexp"
 )
 
 const (
 	defaultPath = "real-info.json"
-	clipURL = "https://clip.unl.pt"
-	baseURL = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=2022&per%%EDodo_lectivo=1&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d"
-	docExp = `href="/objecto?[^"]*`
+	clipURL     = "https://clip.unl.pt"
+	baseURL     = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=2022&per%%EDodo_lectivo=1&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d"
+	docExp      = `/objecto?[^"]*`
+	fileExp     = "(?:oin=)(.*)"
 )
 
-// go does not allow const arrays :(
 var (
-	tableSegments = [...]string {
-		"tipo_de_documento_de_unidade=0ac",
-		"tipo_de_documento_de_unidade=1e",
-		"tipo_de_documento_de_unidade=2tr",
-		"tipo_de_documento_de_unidade=3sm",
-		"tipo_de_documento_de_unidade=ex",
-		"tipo_de_documento_de_unidade=t",
-		"tipo_de_documento_de_unidade=ta",
-		"tipo_de_documento_de_unidade=xot",
+	// go does not allow const arrays :(
+	tableFields = map[string]string{
+		"material-multimedia": "&tipo_de_documento_de_unidade=0ac",
+		"problemas":           "&tipo_de_documento_de_unidade=1e",
+		"protocolos":          "&tipo_de_documento_de_unidade=2tr",
+		"seminarios":          "&tipo_de_documento_de_unidade=3sm",
+		"exames":              "&tipo_de_documento_de_unidade=ex",
+		"testes":              "&tipo_de_documento_de_unidade=t",
+		"textos-de-apoio":     "&tipo_de_documento_de_unidade=ta",
+		"outros":              "&tipo_de_documento_de_unidade=xot",
 	}
+	cookie *http.Cookie
+	user   *User = &User{}
 )
+
+type User struct {
+	// authentication
+	Name     string `json: "name"`
+	Password string `json: "password"`
+
+	// url fields
+	Number  int            `json: "number"`
+	Classes map[string]int `json: "classes"`
+}
 
 func main() {
-	user := User{}
-	if err := getInfoFromFile(&user, defaultPath); err != nil {
+	if err := getInfoFromFile(defaultPath); err != nil {
 		panic(err)
 	}
 
-	// get selected classes from user, check for errors, get urls
+	// get selected classes from user and respective urls
 	args := os.Args[1:]
-	var urls []string
-	for _, v := range args {
-		code, ok := user.Classes[v]
-		if !ok {
-			panic(fmt.Sprintf("Class not provided in info file: ", v))
-		}
-		urls = append(urls, fmt.Sprintf(baseURL, clipURL, user.Number, code))
+	if len(args) == 0 {
+		panic("No classes provided")
 	}
 
-	// request
+	urls := make([]string, len(args))
+	for i, v := range args {
+		if code, ok := user.Classes[v]; !ok {
+			panic(fmt.Sprintf("Class not provided in info file: %s", v))
+		} else {
+			urls[i] = fmt.Sprintf(baseURL, clipURL, user.Number, code)
+		}
+	}
+
+	// request with only one class (testing)
+	for k, v := range tableFields {
+		urlStr := fmt.Sprintf("%s%s", urls[0], v)
+
+		resp, err := perfRequest(urlStr)
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+
+		// get cookie val from first req
+		cookie = getCookie(resp)
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			panic(err)
+		}
+
+		// find docs in that section (if there are any)
+		docs := regexp.MustCompile(docExp).FindAll(body, -1)
+
+		// create dir
+		if err := os.MkdirAll(k, 0420); err != nil {
+			panic(err)
+		}
+		// set permissions yet again because of umask
+		if err := os.Chmod(k, 0777); err != nil {
+			panic(err)
+		}
+		if err := os.Chdir(k); err != nil {
+			panic(err)
+		}
+
+		for _, v := range docs {
+			if err := downloadFile(string(v)); err != nil {
+				panic(err)
+			}
+		}
+
+		if err := os.Chdir(".."); err != nil {
+			panic(err)
+		}
+	}
+}
+
+func downloadFile(fileURL string) error {
+	const dlError = "Error downloading file %s: %w"
+	filename := string(regexp.MustCompile(fileExp).FindStringSubmatch(fileURL)[1])
+
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", clipURL, fileURL), nil)
+	if err != nil {
+		return fmt.Errorf(dlError, filename, err)
+	}
+
+	req.AddCookie(cookie)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf(dlError, filename, err)
+	}
+	defer resp.Body.Close()
+
+	fp, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf(dlError, filename, err)
+	}
+	defer fp.Close()
+
+	_, err = io.Copy(fp, resp.Body)
+	if err != nil {
+		return fmt.Errorf(dlError, filename, err)
+	}
+	return nil
+}
+
+func getCookie(resp *http.Response) *http.Cookie {
+	cFields := regexp.MustCompile("=|;").Split(resp.Header.Get("set-cookie"), -1)[:2]
+	return &http.Cookie{
+		Name:  cFields[0],
+		Value: cFields[1],
+	}
+}
+
+// we must always authenticate after each request
+func perfRequest(formatURL string) (*http.Response, error) {
 	vals := url.Values{}
 	vals.Add("identificador", user.Name)
 	vals.Add("senha", user.Password)
 
-	resp, err := perfRequest(urls[0], vals)
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		panic(err)	
-	}
-
-	docs := regexp.MustCompile(docExp).FindAll(body, -1)	
-	if len(docs) == 0 {
-		panic("Regex failed")
-	}
-}
-
-// we must always authenticate after each request 
-func perfRequest(formatURL string, vals url.Values) (*http.Response, error) {
 	http.Get(formatURL)
 	resp, err := http.PostForm(formatURL, vals)
 	if err != nil {
 		return nil, fmt.Errorf("Error performing request: ", err)
 	} else if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("Request failed. Login credentials may be incorrect")
+		return resp, fmt.Errorf("Request failed. Login credentials may be incorrect")
 	}
 
 	return resp, nil
 }
 
-func getInfoFromFile(user *User, path string) error {
+func getInfoFromFile(path string) error {
 	info, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("Error reading from json: %w", err)
