@@ -1,6 +1,6 @@
 *.json
 *.sh
 *.swp
-docs/*
+docs/real-info.json
 .DS_Store
 TODO

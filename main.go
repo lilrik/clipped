@@ -12,10 +12,10 @@ import (
 
 const (
 	writeRights   = 0777
-	userInfoPath  = "docs/real-info.json"
-	classInfoPath = "docs/classes.json"
+	userInfoPath  = "docs" + string(os.PathSeparator) + "user.json"
+	classInfoPath = "docs" + string(os.PathSeparator) + "classes.json"
 	clipURL       = "https://clip.unl.pt"
-	baseURL       = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=2022&per%%EDodo_lectivo=1&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d"
+	baseURL       = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=%d&per%%EDodo_lectivo=%d&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d"
 	docExp        = `/objecto?[^"]*`
 	fileExp       = "(?:oin=)(.*)"
 )
@@ -34,8 +34,13 @@ var (
 	}
 	cookie  *http.Cookie
 	user    = &User{}
-	classes map[string]int
+	classes map[string]Class
 )
+
+type Class struct {
+	Semester int `json: "semester"`
+	Code     int `json: "code"`
+}
 
 type User struct {
 	Number   int    `json: "number"`
@@ -47,29 +52,27 @@ func main() {
 	check(getInfo(userInfoPath, user))
 	check(getInfo(classInfoPath, &classes))
 
-	// get selected classes from user and respective urls
-	args := os.Args[1:]
-	if len(args) == 0 {
-		panic("No classes provided")
+	if len(os.Args) < 3 {
+		panic("Missing argument(s)")
 	}
 
-	urls := make([]string, len(args))
-	for i, v := range args {
-		if code, ok := classes[v]; !ok {
-			fmt.Printf("Class not provided in info file: %s\n", v)
-			continue
-		} else {
-			urls[i] = fmt.Sprintf(baseURL, clipURL, user.Number, code)
-		}
+	var year int
+	_, err := fmt.Sscan(os.Args[2], &year)
+	check(err)
+	year += 2000
+
+	var url string
+	if class, ok := classes[os.Args[1]]; !ok {
+		fmt.Println("Class not provided in info file")
+	} else {
+		url = fmt.Sprintf(baseURL, clipURL, year, class.Semester, user.Number, class.Code)
 	}
 
-	// request with only one class (testing)
 	for k, v := range tableFields {
-		resp, err := perfRequest(fmt.Sprintf("%s%s", urls[0], v))
+		resp, err := perfRequest(fmt.Sprintf("%s%s", url, v))
 		check(err)
 		defer resp.Body.Close()
 
-		// get cookie val from first req
 		cookie = getCookie(resp)
 
 		body, err := io.ReadAll(resp.Body)
@@ -82,18 +85,11 @@ func main() {
 		docs := regexp.MustCompile(docExp).FindAll(body, -1)
 
 		if len(docs) > 0 {
+			fmt.Printf("Getting files in %s...\n", k)
 			check(newDir(k))
-		} else {
-			continue
-		}
-
-		for _, v := range docs {
-			check(downloadFile(string(v)))
-		}
-
-		// should be defer (change it when in function)
-		if err := os.Chdir(".."); err != nil {
-			panic(err)
+			for _, v := range docs {
+				check(downloadFile(k, string(v)))
+			}
 		}
 	}
 }
@@ -106,9 +102,8 @@ func check(err error) {
 	}
 }
 
-// makes new dir and switches working dir to it
 func newDir(name string) error {
-	const dirError = "Error setting-up downloads sub-directory: %w"
+	const dirError = "error setting-up downloads sub-directory: %w"
 
 	// create dir
 	if err := os.MkdirAll(name, 0420); err != nil {
@@ -120,24 +115,21 @@ func newDir(name string) error {
 		return fmt.Errorf(dirError, err)
 	}
 
-	if err := os.Chdir(name); err != nil {
-		return fmt.Errorf(dirError, err)
-	}
-
 	return nil
 }
 
-func downloadFile(fileURL string) error {
-	const dlError = "Error downloading file %s: %w"
+func downloadFile(dir, fileURL string) error {
+	const dlError = "error downloading file %s: %w"
 	filename := string(regexp.MustCompile(fileExp).FindStringSubmatch(fileURL)[1])
 
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", clipURL, fileURL), nil)
 	if err != nil {
 		return fmt.Errorf(dlError, filename, err)
 	}
-
+	req.Close = true
 	req.AddCookie(cookie)
 
+	fmt.Printf("\tDownloading file %s...\n", filename)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -145,7 +137,7 @@ func downloadFile(fileURL string) error {
 	}
 	defer resp.Body.Close()
 
-	fp, err := os.Create(filename)
+	fp, err := os.Create(fmt.Sprintf("%s%c%s", dir, os.PathSeparator, filename))
 	if err != nil {
 		return fmt.Errorf(dlError, filename, err)
 	}
@@ -173,19 +165,19 @@ func perfRequest(formatURL string) (*http.Response, error) {
 	vals.Add("identificador", user.Name)
 	vals.Add("senha", user.Password)
 
-	http.Get(formatURL)
+	_, _ = http.Get(formatURL)
 	resp, err := http.PostForm(formatURL, vals)
 	if err != nil {
-		return nil, fmt.Errorf("Error performing request: ", err)
+		return nil, fmt.Errorf("error performing request: %w", err)
 	} else if resp.StatusCode != 200 {
-		return resp, fmt.Errorf("Request failed. Login credentials may be incorrect")
+		return resp, fmt.Errorf("request failed. Login credentials may be incorrect")
 	}
 
 	return resp, nil
 }
 
 func getInfo(path string, dest interface{}) error {
-	const infoError = "Error reading from json %s: %w"
+	const infoError = "error reading from json %s: %w"
 
 	info, err := os.ReadFile(path)
 	if err != nil {
