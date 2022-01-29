@@ -10,15 +10,17 @@ Furthermore, the notification system is ancient.
 
 #### Setup:
 There are two files in the `docs` folder:
-- `user.json`: contains the user's unique url number and credentials.
-- `classes.json`: contains the class' unique url number and semester (1 or 2 for summer or winter, respectively).
+- `user.json`: contains the user's unique url number* and credentials.
+- `classes.json`: contains the class' unique url number* and semester (1 or 2 for summer or winter, respectively).
+
+*Just look for it in the url.
 
 You must set **all** data on `user.json` and at leat one class on `classes.json`.
 
 #### Running:
 There are pre-built binaries in `bin`. Alternatively just run `go build .`, if you have it installed.
 ```
-# class name as defined in the json file and the year of the files you wish to download
+# class name as defined in the json file and the year of the files you wish to download (ex.: 22 for 2022)
 ./<binary-name> <class-name> <year>
 ```
 
