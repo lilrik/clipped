@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,8 +14,9 @@ import (
 
 const (
 	writeRights   = 0777
-	userInfoPath  = "docs" + string(os.PathSeparator) + "user.json"
-	classInfoPath = "docs" + string(os.PathSeparator) + "classes.json"
+	sep           = string(os.PathSeparator)
+	userInfoPath  = "docs" + sep + "user.json"
+	classInfoPath = "docs" + sep + "classes.json"
 	clipURL       = "https://clip.unl.pt"
 	baseURL       = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=%d&per%%EDodo_lectivo=%d&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d"
 	docExp        = `/objecto?[^"]*`
@@ -49,27 +52,37 @@ type User struct {
 }
 
 func main() {
+	if len(os.Args) < 3 {
+		log.Fatal("missing argument(s) (ex.: ./bin/clipped-linux ia 22)")
+	}
+
+	workingDir, err := os.Getwd()
+	check(err)
+	dirs := regexp.MustCompile(sep).Split(workingDir, -1)
+	if dirs[len(dirs)-1] != "clipped" {
+		log.Fatal("run executable from project root (ex.: cd clipped; ./bin/clipped-linux ia 22)")
+	}
+
 	check(getInfo(userInfoPath, user))
 	check(getInfo(classInfoPath, &classes))
 
-	if len(os.Args) < 3 {
-		panic("Missing argument(s)")
-	}
-
 	var year int
-	_, err := fmt.Sscan(os.Args[2], &year)
+	_, err = fmt.Sscan(os.Args[2], &year)
 	check(err)
 	year += 2000
 
 	var url string
-	if class, ok := classes[os.Args[1]]; !ok {
-		fmt.Println("Class not provided in info file")
+	className := os.Args[1]
+	if class, ok := classes[className]; !ok {
+		log.Fatal("class not provided in info file")
 	} else {
 		url = fmt.Sprintf(baseURL, clipURL, year, class.Semester, user.Number, class.Code)
 	}
 
+	fmt.Println("Starting...")
+	check(newDir(className))
 	for k, v := range tableFields {
-		resp, err := perfRequest(fmt.Sprintf("%s%s", url, v))
+		resp, err := perfRequest(url + v)
 		check(err)
 		defer resp.Body.Close()
 
@@ -77,28 +90,27 @@ func main() {
 
 		body, err := io.ReadAll(resp.Body)
 		check(err)
-		if len(body) == 0 {
-			fmt.Println("Empty response body. Incorrect URL vals")
-		}
 
 		// find docs in that section (if there are any)
 		docs := regexp.MustCompile(docExp).FindAll(body, -1)
 
 		if len(docs) > 0 {
+			dir := fmt.Sprintf("%s%c%s", className, os.PathSeparator, k)
+			check(newDir(dir))
 			fmt.Printf("Getting files in %s...\n", k)
-			check(newDir(k))
 			for _, v := range docs {
-				check(downloadFile(k, string(v)))
+				check(downloadFile(dir, string(v)))
 			}
+		} else {
+			fmt.Printf("No documents present in %s.\n", k)
 		}
 	}
 }
 
 // use only in main
 func check(err error) {
-	// using panic instead of log.Fatal() because of defers
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 }
 
@@ -122,7 +134,7 @@ func downloadFile(dir, fileURL string) error {
 	const dlError = "error downloading file %s: %w"
 	filename := string(regexp.MustCompile(fileExp).FindStringSubmatch(fileURL)[1])
 
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", clipURL, fileURL), nil)
+	req, err := http.NewRequest("GET", clipURL+fileURL, nil)
 	if err != nil {
 		return fmt.Errorf(dlError, filename, err)
 	}
@@ -159,21 +171,48 @@ func getCookie(resp *http.Response) *http.Cookie {
 	}
 }
 
-// we must always authenticate after each request
-func perfRequest(formatURL string) (*http.Response, error) {
+func perfRequest(urlStr string) (*http.Response, error) {
+	const reqError = "error performing request: %w"
 	vals := url.Values{}
 	vals.Add("identificador", user.Name)
 	vals.Add("senha", user.Password)
 
-	_, _ = http.Get(formatURL)
-	resp, err := http.PostForm(formatURL, vals)
+	_, _ = http.Get(urlStr)
+	resp, err := http.PostForm(urlStr, vals)
 	if err != nil {
-		return nil, fmt.Errorf("error performing request: %w", err)
+		return resp, fmt.Errorf(reqError, err)
 	} else if resp.StatusCode != 200 {
-		return resp, fmt.Errorf("request failed. Login credentials may be incorrect")
+		return resp, fmt.Errorf(reqError, fmt.Errorf("request failed"))
+	}
+
+	ok, err := authenticated(resp)
+	if err != nil {
+		return resp, fmt.Errorf(reqError, err)
+	} else if !ok {
+		return resp, fmt.Errorf(reqError, fmt.Errorf("incorrect user credentials"))
 	}
 
 	return resp, nil
+}
+
+func authenticated(r *http.Response) (bool, error) {
+	const authError = "error checking authentication: %w"
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return false, fmt.Errorf(authError, err)
+	}
+	r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewBuffer(body))
+
+	matched, err := regexp.Match("Erro no pedido", body)
+	if err != nil {
+		return false, fmt.Errorf(authError, err)
+	}
+
+	// if no password is provided, the response is (almost) equal; this case should never happen
+	// if an incorrect password is provided, we get an error message
+	return !matched, nil
 }
 
 func getInfo(path string, dest interface{}) error {
