@@ -21,9 +21,8 @@ Having to traverse through CLIP everytime I need to get some file posted by a pr
 Furthermore, the notification system is ancient.
 
 ## How
-1. Go to CLIP and, from the URL, copy the number in the `aluno=XXXXXX` field.
-2. Go to `docs/user.json` and put the number and your CLIP credentials (the ones you use to log-in) in their respective fields.
-3. Run your platform's executable in `bin`. (See the example below).
+1. Go to `docs/user.json` and set your CLIP credentials (the ones you use to log-in) in their respective fields. Don't change the number field.
+2. Run your platform's executable in `bin`. (See the example below).
 
 ## Running
 ```bash
