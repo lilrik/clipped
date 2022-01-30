@@ -16,7 +16,7 @@ import (
 const (
 	writeRights   = 0777
 	sep           = string(os.PathSeparator)
-	userInfoPath  = sep + "real-info.json"
+	userInfoPath  = sep + "user.json"
 	classInfoPath = sep + "classes.json"
 	clipURL       = "https://clip.unl.pt"
 	baseURL       = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=%d&per%%EDodo_lectivo=%d&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d"

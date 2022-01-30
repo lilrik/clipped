@@ -2,5 +2,25 @@
 	"ia": {
 		"semester": 1,
 		"code": 1712
+	},
+	"cgi": {
+		"semester": 1,
+		"code": 8150
+	},
+	"es": {
+		"semester": 1,
+		"code": 12660
+	},
+	"rc": {
+		"semester": 1,
+		"code": 8149
+	},
+	"ada": {
+		"semester": 2,
+		"code": 8154
+	},
+	"sd": {
+		"semester": 2,
+		"code": 8153
 	}
 }
