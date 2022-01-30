@@ -46,7 +46,7 @@ Run `<executable> -h` to get a short description of the flags.
 
 ## Adding more classes
 1. Go to class' CLIP page and, from the URL, copy the number in the `unidade=XXXX` field.
-2. Go to `docs/classes.json` and put the number, the class name (whatever you want) and semester (1 or 2 for summer or winter, respectively) in their respective fields.
+2. Go to `docs/classes.json` and put the number, the class name (whatever you want) and semester (1 or 2 for winter or summer, respectively) in their respective fields.
 
 ## Building
 This project has no external dependencies. Just use `go build` (and don't forget to set the flags if running from root).
