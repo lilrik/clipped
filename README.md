@@ -25,7 +25,7 @@ Furthermore, the notification system is ancient.
 2. Go to `docs/user.json` and put the number and your CLIP credentials (the ones you use to log-in) in their respective fields.
 3. Run your platform's executable in `bin`. (See the example below).
 
-### Running
+## Running
 ```bash
 # usage: <executable> <class-name> <year>
 # the <class-name> is the name in the classes.json file
@@ -34,9 +34,9 @@ Furthermore, the notification system is ancient.
 # ex.: here we get the IA 2022 class files
 ./clipped-linux ia 22
 ```
----
-### Flags
-**Note:** these flags are required if you run the executable outside of bin.
+
+#### Flags
+###### Note: these flags are required if you run the executable outside of `bin`.
 
 Run `<executable> -h` to get a short description of the flags.
 ```bash
@@ -44,7 +44,7 @@ Run `<executable> -h` to get a short description of the flags.
 ./clipped-linux ia 22 -docs=docs -files=..
 ```
 
-### Adding more classes
+## Adding more classes
 1. Go to class' CLIP page and, from the URL, copy the number in the `unidade=XXXX` field.
 2. Go to `docs/classes.json` and put the number, the class name (whatever you want) and semester (1 or 2 for summer or winter, respectively) in their respective fields.
 
