@@ -19,27 +19,24 @@ const (
 	userInfoPath  = sep + "user.json"
 	classInfoPath = sep + "classes.json"
 	clipURL       = "https://clip.unl.pt"
+	utenteURL     = clipURL + "/utente/eu"
 	baseURL       = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=%d&per%%EDodo_lectivo=%d&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d"
 	docExp        = `/objecto?[^"]*`
 	fileExp       = "(?:oin=)(.*)"
+	numExp        = `(?:aluno=)([\d]+)`
 )
 
-var (
-	// go does not allow const maps :(
-	tableFields = map[string]string{
-		"material-multimedia": "&tipo_de_documento_de_unidade=0ac",
-		"problemas":           "&tipo_de_documento_de_unidade=1e",
-		"protocolos":          "&tipo_de_documento_de_unidade=2tr",
-		"seminarios":          "&tipo_de_documento_de_unidade=3sm",
-		"exames":              "&tipo_de_documento_de_unidade=ex",
-		"testes":              "&tipo_de_documento_de_unidade=t",
-		"textos-de-apoio":     "&tipo_de_documento_de_unidade=ta",
-		"outros":              "&tipo_de_documento_de_unidade=xot",
-	}
-	cookie  *http.Cookie
-	user    = &User{}
-	classes map[string]Class
-)
+// go does not allow const maps :(
+var tableFields = map[string]string{
+	"material-multimedia": "&tipo_de_documento_de_unidade=0ac",
+	"problemas":           "&tipo_de_documento_de_unidade=1e",
+	"protocolos":          "&tipo_de_documento_de_unidade=2tr",
+	"seminarios":          "&tipo_de_documento_de_unidade=3sm",
+	"exames":              "&tipo_de_documento_de_unidade=ex",
+	"testes":              "&tipo_de_documento_de_unidade=t",
+	"textos-de-apoio":     "&tipo_de_documento_de_unidade=ta",
+	"outros":              "&tipo_de_documento_de_unidade=xot",
+}
 
 type Class struct {
 	Semester int `json: "semester"`
@@ -53,21 +50,35 @@ type User struct {
 }
 
 func main() {
+	user := &User{}
+	classes := make(map[string]Class)
+	cookie := &http.Cookie{}
+
 	docsPath := flag.String("docs", ".."+sep+"docs", "path to docs folder relative to executable")
 	filesPath := flag.String("files", "..", "path to directory relative to executable where files will be stored")
 	flag.Parse()
 
-	check(getInfo(*docsPath+userInfoPath, user))
-	check(getInfo(*docsPath+classInfoPath, &classes))
+	check(loadConfig(*docsPath+userInfoPath, user))
+	check(loadConfig(*docsPath+classInfoPath, &classes))
 
-	url, className, err := parseCLIArguments(flag.Args())
+	if user.Number < 0 {
+		fmt.Println("Getting user number and saving for future use...")
+		num, err := getUserURLNum(*user)
+		check(err)
+		user.Number = num
+		check(writeNumToFile(num, *user, *docsPath+userInfoPath))
+	}
+
+	class, className, year, err := parseArgs(flag.Args(), *user, classes)
 	check(err)
+
+	url := getRequestURL(year, *user, class)
 
 	fmt.Println("Starting...")
 	classFilesPath := *filesPath + sep + className
 	check(newDir(classFilesPath))
 	for k, v := range tableFields {
-		resp, err := perfRequest(url + v)
+		resp, err := perfRequest(url+v, *user)
 		check(err)
 		defer resp.Body.Close()
 
@@ -84,7 +95,7 @@ func main() {
 			check(newDir(dir))
 			fmt.Printf("Getting files in %s...\n", k)
 			for _, v := range docs {
-				check(downloadFile(dir, string(v)))
+				check(downloadFile(dir, string(v), cookie))
 			}
 		} else {
 			fmt.Printf("No documents present in %s.\n", k)
@@ -99,30 +110,74 @@ func check(err error) {
 	}
 }
 
-func parseCLIArguments(args []string) (string, string, error) {
+func getUserURLNum(user User) (int, error) {
+	const userNumError = "error getting user's url number: %w"
+
+	resp, err := perfRequest(utenteURL, user)
+	if err != nil {
+		return 0, fmt.Errorf(userNumError, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf(userNumError, err)
+	}
+
+	matches := regexp.MustCompile(numExp).FindSubmatch(body)
+	if len(matches) < 2 {
+		return 0, fmt.Errorf(userNumError, fmt.Errorf("could not find the number"))
+	}
+
+	var num int
+	if _, err := fmt.Sscan(string(matches[1]), &num); err != nil {
+		return 0, fmt.Errorf(userNumError, fmt.Errorf("could not find the number"))
+	}
+
+	return num, nil
+}
+
+func writeNumToFile(num int, user User, path string) error {
+	const writeError = "error writing new data to json: %w"
+
+	data, err := json.Marshal(user)
+	if err != nil {
+		return fmt.Errorf(writeError, err)
+	}
+
+	if err := os.WriteFile(path, data, 0420); err != nil {
+		return fmt.Errorf(writeError, err)
+	}
+
+	return nil
+}
+
+func parseArgs(args []string, user User, classes map[string]Class) (Class, string, int, error) {
 	const parseError = "error parsing cli arguments: %w"
 
 	// flag.Args() does not include executable name
 	if len(args) < 2 {
-		return "", "", fmt.Errorf(parseError, fmt.Errorf("missing argument(s) (ex.: ./bin/clipped-linux ia 22)"))
+		return Class{}, "", 0, fmt.Errorf(parseError, fmt.Errorf("missing argument(s) (ex.: ./bin/clipped-linux ia 22)"))
 	}
 
 	var year int
 	_, err := fmt.Sscan(args[1], &year)
 	if err != nil {
-		return "", "", fmt.Errorf(parseError, err)
+		return Class{}, "", 0, fmt.Errorf(parseError, err)
 	}
 	year += 2000
 
-	var url string
 	className := args[0]
-	if class, ok := classes[className]; !ok {
-		return "", "", fmt.Errorf(parseError, fmt.Errorf("class not provided in info file"))
-	} else {
-		url = fmt.Sprintf(baseURL, clipURL, year, class.Semester, user.Number, class.Code)
+	class, ok := classes[className]
+	if !ok {
+		return Class{}, "", 0, fmt.Errorf(parseError, fmt.Errorf("class not provided in info file"))
 	}
 
-	return url, className, nil
+	return class, className, year, nil
+}
+
+func getRequestURL(year int, user User, class Class) string {
+	return fmt.Sprintf(baseURL, clipURL, year, class.Semester, user.Number, class.Code)
 }
 
 func newDir(name string) error {
@@ -141,9 +196,14 @@ func newDir(name string) error {
 	return nil
 }
 
-func downloadFile(dir, fileURL string) error {
+func downloadFile(dir, fileURL string, cookie *http.Cookie) error {
 	const dlError = "error downloading file %s: %w"
-	filename := string(regexp.MustCompile(fileExp).FindStringSubmatch(fileURL)[1])
+
+	matches := regexp.MustCompile(fileExp).FindStringSubmatch(fileURL)
+	if len(matches) < 2 {
+		return fmt.Errorf(dlError, fileURL, fmt.Errorf("file does not exist"))
+	}
+	filename := string(matches[1])
 
 	req, err := http.NewRequest("GET", clipURL+fileURL, nil)
 	if err != nil {
@@ -182,7 +242,7 @@ func getCookie(resp *http.Response) *http.Cookie {
 	}
 }
 
-func perfRequest(urlStr string) (*http.Response, error) {
+func perfRequest(urlStr string, user User) (*http.Response, error) {
 	const reqError = "error performing request: %w"
 	vals := url.Values{}
 	vals.Add("identificador", user.Name)
@@ -226,7 +286,7 @@ func authenticated(r *http.Response) (bool, error) {
 	return !matched, nil
 }
 
-func getInfo(path string, dest interface{}) error {
+func loadConfig(path string, dest interface{}) error {
 	const infoError = "error reading from json %s: %w"
 
 	info, err := os.ReadFile(path)
