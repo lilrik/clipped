@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -15,8 +16,8 @@ import (
 const (
 	writeRights   = 0777
 	sep           = string(os.PathSeparator)
-	userInfoPath  = "docs" + sep + "user.json"
-	classInfoPath = "docs" + sep + "classes.json"
+	userInfoPath  = sep + "real-info.json"
+	classInfoPath = sep + "classes.json"
 	clipURL       = "https://clip.unl.pt"
 	baseURL       = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=%d&per%%EDodo_lectivo=%d&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d"
 	docExp        = `/objecto?[^"]*`
@@ -52,35 +53,19 @@ type User struct {
 }
 
 func main() {
-	if len(os.Args) < 3 {
-		log.Fatal("missing argument(s) (ex.: ./bin/clipped-linux ia 22)")
-	}
+	docsPath := flag.String("docs", ".."+sep+"docs", "path to docs folder relative to executable")
+	filesPath := flag.String("files", "..", "path to directory relative to executable where files will be stored")
+	flag.Parse()
 
-	workingDir, err := os.Getwd()
+	check(getInfo(*docsPath+userInfoPath, user))
+	check(getInfo(*docsPath+classInfoPath, &classes))
+
+	url, className, err := parseCLIArguments(flag.Args())
 	check(err)
-	dirs := regexp.MustCompile(sep).Split(workingDir, -1)
-	if dirs[len(dirs)-1] != "clipped" {
-		log.Fatal("run executable from project root (ex.: cd clipped; ./bin/clipped-linux ia 22)")
-	}
-
-	check(getInfo(userInfoPath, user))
-	check(getInfo(classInfoPath, &classes))
-
-	var year int
-	_, err = fmt.Sscan(os.Args[2], &year)
-	check(err)
-	year += 2000
-
-	var url string
-	className := os.Args[1]
-	if class, ok := classes[className]; !ok {
-		log.Fatal("class not provided in info file")
-	} else {
-		url = fmt.Sprintf(baseURL, clipURL, year, class.Semester, user.Number, class.Code)
-	}
 
 	fmt.Println("Starting...")
-	check(newDir(className))
+	classFilesPath := *filesPath + sep + className
+	check(newDir(classFilesPath))
 	for k, v := range tableFields {
 		resp, err := perfRequest(url + v)
 		check(err)
@@ -95,7 +80,7 @@ func main() {
 		docs := regexp.MustCompile(docExp).FindAll(body, -1)
 
 		if len(docs) > 0 {
-			dir := fmt.Sprintf("%s%c%s", className, os.PathSeparator, k)
+			dir := fmt.Sprintf("%s%c%s", classFilesPath, os.PathSeparator, k)
 			check(newDir(dir))
 			fmt.Printf("Getting files in %s...\n", k)
 			for _, v := range docs {
@@ -112,6 +97,32 @@ func check(err error) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func parseCLIArguments(args []string) (string, string, error) {
+	const parseError = "error parsing cli arguments: %w"
+
+	// flag.Args() does not include executable name
+	if len(args) < 2 {
+		return "", "", fmt.Errorf(parseError, fmt.Errorf("missing argument(s) (ex.: ./bin/clipped-linux ia 22)"))
+	}
+
+	var year int
+	_, err := fmt.Sscan(args[1], &year)
+	if err != nil {
+		return "", "", fmt.Errorf(parseError, err)
+	}
+	year += 2000
+
+	var url string
+	className := args[0]
+	if class, ok := classes[className]; !ok {
+		return "", "", fmt.Errorf(parseError, fmt.Errorf("class not provided in info file"))
+	} else {
+		url = fmt.Sprintf(baseURL, clipURL, year, class.Semester, user.Number, class.Code)
+	}
+
+	return url, className, nil
 }
 
 func newDir(name string) error {
