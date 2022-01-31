@@ -16,7 +16,7 @@ import (
 const (
 	writeRights   = 0777
 	sep           = string(os.PathSeparator)
-	userInfoPath  = sep + "real-info.json"
+	userInfoPath  = sep + "user.json"
 	classInfoPath = sep + "classes.json"
 	clipURL       = "https://clip.unl.pt"
 	utenteURL     = clipURL + "/utente/eu"
@@ -60,6 +60,7 @@ func main() {
 	check(loadConfig(*docsPath+userInfoPath, &user))
 	check(loadConfig(*docsPath+classInfoPath, &classes))
 
+	// if the user number is not yet set, it will have the value of -1
 	if user.Number < 0 {
 		fmt.Println("Getting user number and saving for future use...")
 		num, err := getUserURLNum(user)
@@ -73,9 +74,9 @@ func main() {
 
 	fmt.Println("Starting...")
 	classFilesPath := *filesPath + sep + className
-	check(newDir(classFilesPath))
+	check(mkDir(classFilesPath))
 	for k, v := range tableFields {
-		resp, err := perfRequest(getRequestURL(year, user, class, v), user)
+		resp, err := requestAndAuth(mkRequestURL(year, user, class, v), user)
 		check(err)
 		defer resp.Body.Close()
 
@@ -85,9 +86,9 @@ func main() {
 		docs := regexp.MustCompile(docExp).FindAll(body, -1)
 
 		if len(docs) > 0 {
-			dir := classFilesPath + sep + k
-			check(newDir(dir))
 			fmt.Printf("Getting files in %s...\n", k)
+			dir := classFilesPath + sep + k
+			check(mkDir(dir))
 
 			for _, v := range docs {
 				check(downloadFile(dir, string(v), getCookie(resp)))
@@ -108,7 +109,7 @@ func check(err error) {
 func getUserURLNum(user User) (int, error) {
 	const userNumError = "error getting user's url number: %w"
 
-	resp, err := perfRequest(utenteURL, user)
+	resp, err := requestAndAuth(utenteURL, user)
 	if err != nil {
 		return 0, fmt.Errorf(userNumError, err)
 	}
@@ -171,11 +172,11 @@ func parseArgs(args []string, classes map[string]Class) (Class, string, int, err
 	return class, className, year, nil
 }
 
-func getRequestURL(year int, user User, class Class, tableField string) string {
+func mkRequestURL(year int, user User, class Class, tableField string) string {
 	return fmt.Sprintf(baseURL, clipURL, year, class.Semester, user.Number, class.Code, tableField)
 }
 
-func newDir(name string) error {
+func mkDir(name string) error {
 	const dirError = "error setting-up downloads sub-directory: %w"
 
 	// create dir
@@ -207,7 +208,7 @@ func downloadFile(dir, fileURL string, cookie http.Cookie) error {
 	req.Close = true
 	req.AddCookie(&cookie)
 
-	fmt.Printf("\tDownloading file %s...\n", filename)
+	fmt.Printf("\tDownloading %s...\n", filename)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -215,7 +216,7 @@ func downloadFile(dir, fileURL string, cookie http.Cookie) error {
 	}
 	defer resp.Body.Close()
 
-	fp, err := os.Create(fmt.Sprintf("%s%c%s", dir, os.PathSeparator, filename))
+	fp, err := os.Create(dir + sep + filename)
 	if err != nil {
 		return fmt.Errorf(dlError, filename, err)
 	}
@@ -237,8 +238,9 @@ func getCookie(resp *http.Response) http.Cookie {
 	}
 }
 
-func perfRequest(urlStr string, user User) (*http.Response, error) {
+func requestAndAuth(urlStr string, user User) (*http.Response, error) {
 	const reqError = "error performing request: %w"
+
 	vals := url.Values{}
 	vals.Add("identificador", user.Name)
 	vals.Add("senha", user.Password)
@@ -251,17 +253,17 @@ func perfRequest(urlStr string, user User) (*http.Response, error) {
 		return resp, fmt.Errorf(reqError, fmt.Errorf("request failed"))
 	}
 
-	ok, err := authenticated(resp)
+	auth, err := didAuth(resp)
 	if err != nil {
 		return resp, fmt.Errorf(reqError, err)
-	} else if !ok {
+	} else if !auth {
 		return resp, fmt.Errorf(reqError, fmt.Errorf("incorrect user credentials"))
 	}
 
 	return resp, nil
 }
 
-func authenticated(r *http.Response) (bool, error) {
+func didAuth(r *http.Response) (bool, error) {
 	const authError = "error checking authentication: %w"
 
 	body, err := io.ReadAll(r.Body)
