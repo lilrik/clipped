@@ -52,10 +52,3 @@ This project has no external dependencies. Just use `go build` (and don't forget
 
 ## Disclaimer
 Please don't abuse the servers and I'm not responsible if you do.
-
-## QA
-#### Why no concurrency?
-I tested with various concurrent set-ups but it appears there is quite a strict rate-limit and I'm really not confident in CLIP's ability to not crash, even then. Don't wanna get my ass busted lmao.
-
-#### Why do I have to fill everything myself?
-It's just a one time setup but I agree; in the future I should query the database or something.
