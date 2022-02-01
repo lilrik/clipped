@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sync"
 )
 
 const (
@@ -81,9 +82,13 @@ func main() {
 	classFilesPath := *filesPath + sep + className
 	err = makeDir(classFilesPath)
 	check(err)
+	// just in case a file takes longer to flush to disk
+	var wg sync.WaitGroup
 	for k, v := range tableFields {
 		resp, docs, err := getDocsInSection(makeRequestURL(year, user, class, v), user)
 		check(err)
+		cookie := getCookie(resp)
+		resp.Body.Close()
 
 		if len(docs) > 0 {
 			fmt.Printf("Getting files in %s:\n", k)
@@ -92,14 +97,21 @@ func main() {
 			check(err)
 
 			for _, v := range docs {
-				err = downloadFile(dirPath, string(v), getCookie(resp))
+				resp, filename, err := getFileData(string(v), cookie)
 				check(err)
-				resp.Body.Close()
+				wg.Add(1)
+				go func(r *http.Response, dp, fn string) {
+					err = writeDataToDisk(r, dp, fn)
+					check(err)
+					wg.Done()
+				}(resp, dirPath, filename)
 			}
 		} else {
 			fmt.Printf("No documents present in %s.\n", k)
 		}
 	}
+	fmt.Println("Finishing...")
+	wg.Wait()
 }
 
 // use only in main
@@ -203,16 +215,16 @@ func makeDir(name string) error {
 	return nil
 }
 
-func downloadFile(dir, fileURL string, cookie http.Cookie) error {
+func getFileData(fileURL string, cookie http.Cookie) (*http.Response, string, error) {
 	matches := regexp.MustCompile(fileExp).FindStringSubmatch(fileURL)
 	if len(matches) < 2 {
-		return fmt.Errorf("could not parse filename from url (%s): ", fileURL)
+		return nil, "", fmt.Errorf("could not parse filename from url (%s): ", fileURL)
 	}
 	filename := string(matches[1])
 
 	req, err := http.NewRequest("GET", clipURL+fileURL, nil)
 	if err != nil {
-		return fmt.Errorf("creating request for %s: %w", filename, err)
+		return nil, "", fmt.Errorf("creating request for %s: %w", filename, err)
 	}
 	req.Close = true
 	req.AddCookie(&cookie)
@@ -221,8 +233,13 @@ func downloadFile(dir, fileURL string, cookie http.Cookie) error {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("performing request for %s: %w", filename, err)
+		return nil, "", fmt.Errorf("performing request for %s: %w", filename, err)
 	}
+
+	return resp, filename, nil
+}
+
+func writeDataToDisk(resp *http.Response, dir, filename string) error {
 	defer resp.Body.Close()
 
 	fp, err := os.Create(dir + sep + filename)
