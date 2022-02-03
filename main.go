@@ -51,59 +51,93 @@ type User struct {
 }
 
 func main() {
-	user := User{}
-	classes := make(map[string]Class)
-
-	docsPath := flag.String("docs", ".."+sep+"docs", "path to docs folder relative to executable")
-	filesPath := flag.String("files", "..", "path to directory relative to executable where files will be stored")
+	var (
+		docsPath  = flag.String("docs", ".."+sep+"docs", "path to docs folder relative to executable")
+		filesPath = flag.String("files", "..", "path to directory relative to executable where files will be stored")
+	)
 	flag.Parse()
 
-	err := loadConfig(*docsPath+userInfoPath, &user)
-	check(err)
-	err = loadConfig(*docsPath+classInfoPath, &classes)
-	check(err)
+	var (
+		user    = User{}
+		classes = make(map[string]Class)
+	)
 
-	// if the user number is not yet set, it will have the value of -1
+	class, className, year, err := setup(&user, classes, *docsPath)
+	if err != nil {
+		log.Fatal("error: ", err)
+	}
+
+	if err := run(user, class, year, className, *filesPath); err != nil {
+		log.Fatal("error: ", err)
+	}
+}
+
+func setup(user *User, classes map[string]Class, docsPath string) (Class, string, int, error) {
+	if err := loadConfig(docsPath+userInfoPath, user); err != nil {
+		return Class{}, "", 0, err
+	}
+	if err := loadConfig(docsPath+classInfoPath, &classes); err != nil {
+		return Class{}, "", 0, err
+	}
+
+	// user number == -1 if not yet set
 	if user.Number < 0 {
-		fmt.Println("Getting user number and saving for future use...")
-		num, err := getUserURLNum(user)
-		check(err)
+		fmt.Println("Getting user url number and saving for future use...")
+		num, err := getUserURLNum(*user)
+		if err != nil {
+			return Class{}, "", 0, err
+		}
 
 		user.Number = num
 
-		err = updateUserConfig(user, *docsPath+userInfoPath)
-		check(err)
+		if err = updateUserConfig(*user, docsPath+userInfoPath); err != nil {
+			return Class{}, "", 0, err
+		}
 	}
 
-	class, className, year, err := parseArgs(flag.Args(), classes)
-	check(err)
+	return parseArgs(flag.Args(), classes)
+}
 
+func run(user User, class Class, year int, className, filesPath string) error {
 	fmt.Println("Starting...")
-	classFilesPath := *filesPath + sep + className
-	err = makeDir(classFilesPath)
-	check(err)
+
 	// just in case a file takes longer to flush to disk
 	var wg sync.WaitGroup
+
+	classFilesPath := filesPath + sep + className
+	if err := makeDir(classFilesPath); err != nil {
+		return err
+	}
+
 	for k, v := range tableFields {
 		resp, docs, err := getDocsInSection(makeRequestURL(year, user, class, v), user)
-		check(err)
+		if err != nil {
+			return err
+		}
+
 		cookie := getCookie(resp)
 		resp.Body.Close()
 
 		if len(docs) > 0 {
 			fmt.Printf("Getting files in %s:\n", k)
-			dirPath := classFilesPath + sep + k
-			err = makeDir(dirPath)
-			check(err)
 
-			for _, v := range docs {
-				resp, filename, err := getFileData(string(v), cookie)
-				check(err)
+			dirPath := classFilesPath + sep + k
+			if err := makeDir(dirPath); err != nil {
+				return err
+			}
+
+			for _, d := range docs {
+				resp, filename, err := getFileData(string(d), cookie)
+				if err != nil {
+					return err
+				}
+
 				wg.Add(1)
 				go func(r *http.Response, dp, fn string) {
-					err = writeDataToDisk(r, dp, fn)
-					check(err)
-					wg.Done()
+					defer wg.Done()
+					if err = writeDataToDisk(r, dp, fn); err != nil {
+						panic(fmt.Sprint("error: ", err))
+					}
 				}(resp, dirPath, filename)
 			}
 		} else {
@@ -112,13 +146,8 @@ func main() {
 	}
 	fmt.Println("Finishing...")
 	wg.Wait()
-}
 
-// use only in main
-func check(err error) {
-	if err != nil {
-		log.Fatalf("error: %v", err)
-	}
+	return nil
 }
 
 func getDocsInSection(url string, user User) (*http.Response, [][]byte, error) {
