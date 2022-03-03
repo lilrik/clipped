@@ -11,7 +11,9 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -293,16 +295,46 @@ func getCookie(resp *http.Response) http.Cookie {
 	}
 }
 
+func repeatOnTimeout(client *http.Client, req *http.Request, data string) (*http.Response, error) {
+	resp, err := client.Do(req)
+	// try for five times tops
+	for i := 0; err != nil && os.IsTimeout(err) && i < 5; i++ {
+		fmt.Printf("[Timeout: trying again (%d of 5 tries).]\n", i+1)
+		// body is io.ReaderCloser and must be reset
+		if data != "" {
+			req.Body = io.NopCloser(strings.NewReader(data))
+		}
+		resp, err = client.Do(req)
+	}
+
+	return resp, err
+}
+
 func requestAndAuth(urlStr string, user User) (*http.Response, error) {
+	client := &http.Client{
+		Transport: &http.Transport{
+			ResponseHeaderTimeout: time.Second * 3,
+		},
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, urlStr, nil)
+	if resp, err := repeatOnTimeout(client, req, ""); err != nil {
+		return resp, err
+	}
+
 	vals := url.Values{}
 	vals.Add("identificador", user.Name)
 	vals.Add("senha", user.Password)
 
-	_, _ = http.Get(urlStr)
-	resp, err := http.PostForm(urlStr, vals)
+	data := vals.Encode()
+
+	req, _ = http.NewRequest(http.MethodPost, urlStr, strings.NewReader(data))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := repeatOnTimeout(client, req, data)
 	if err != nil {
 		return resp, fmt.Errorf("sending POST request with credentials: %w", err)
-	} else if resp.StatusCode != 200 {
+	} else if resp.StatusCode != http.StatusOK {
 		return resp, fmt.Errorf("POST request with credentials failed")
 	}
 
