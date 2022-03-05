@@ -1,12 +1,22 @@
 ## What
 It downloads the files (of a given year) from the class' page on CLIP and puts them in their own directory and respective subdirectories.
+```bash
+Outros              [1/8] ████████████████████ 100.00% (4 new files)
+Material-multimédia [2/8] ████████████████████ 100.00% (22 new files)
+Problemas           [3/8] (no files)
+Protocolos          [4/8] (no files)
+Seminários          [5/8] (no files)
+Exames              [6/8] (no files)
+Testes              [7/8] ████████████████████ 100.00% (3 new files)
+Textos-de-apoio     [8/8] (no files)
+```
 ```
 ─ ia
   ├── material-multimedia
   │   ├── T1.pdf
   │   ├── T2.pdf
   │   ├── T3.pdf
-  │   └── (a lot more...)
+  │   └── (...)
   ├── outros
   │   ├── Avaliacao Sumativa.htm
   │   ├── GruposIA.pdf
@@ -21,27 +31,22 @@ Having to traverse through CLIP everytime I need to get some file posted by a pr
 Furthermore, the notification system is ancient.
 
 ## How
-1. Go to `docs/user.json` and set your CLIP credentials (the ones you use to log-in) in their respective fields. Don't change the number field.
-2. Run your platform's executable in `bin`. (See the example below).
+1. Go to `docs/user.json` and set your CLIP credentials (the ones you use to log-in) in their respective fields. **Don't change the number field**.
+2. Run your platform's executable in `bin` (see the example below).
 
 ## Running
 ```bash
 # usage: <executable> <class-name> <year>
 # the <class-name> is the name in the classes.json file
 # the <year> is the last two digits only
-# by default the folder containing the files will go to the project root
-# ex.: here we get the IA 2022 class files
+# by default the folder containing the files will go to the project root (use flags to change)
+
+# ex.: getting the IA 2022 class files:
 ./clipped-linux ia 22
 ```
 
 #### Flags
-###### Note: these flags are required if you run the executable outside of `bin`.
-
-Run `<executable> -h` to get a short description of the flags.
-```bash
-# ex.: here we search for the configs in the docs folder and put the downloaded files in the parent (..) directory 
-./clipped-linux ia 22 -docs=docs -files=..
-```
+Run `<executable> -h` to get a short description of the available flags.
 
 ## Adding more classes
 1. Go to class' CLIP page and, from the URL, copy the number in the `unidade=XXXX` field.
