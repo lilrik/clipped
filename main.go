@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -17,28 +18,33 @@ import (
 )
 
 const (
-	writeRights   = 0777
-	sep           = string(os.PathSeparator)
-	userInfoPath  = sep + "user.json"
-	classInfoPath = sep + "classes.json"
-	clipURL       = "https://clip.unl.pt"
-	utenteURL     = clipURL + "/utente/eu"
-	baseURL       = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=%d&per%%EDodo_lectivo=%d&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d%s"
-	docExp        = `/objecto?[^"]*`
-	fileExp       = "(?:oin=)(.*)"
-	numExp        = `(?:aluno=)([\d]+)`
+	timeout     = time.Second * 4
+	writeRights = 0777
+
+	userInfoPath  = "user.json"
+	classInfoPath = "classes.json"
+
+	clipURL   = "https://clip.unl.pt"
+	utenteURL = clipURL + "/utente/eu"
+	baseURL   = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=%d&per%%EDodo_lectivo=%d&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d%s"
+
+	docExp  = `/objecto?[^"]*`
+	fileExp = "(?:oin=)(.*)"
+	numExp  = `(?:aluno=)([\d]+)`
+
+	progressBarLen = 20
 )
 
 // go does not allow const maps :(
 var tableFields = map[string]string{
-	"material-multimédia": "&tipo_de_documento_de_unidade=0ac",
-	"problemas":           "&tipo_de_documento_de_unidade=1e",
-	"protocolos":          "&tipo_de_documento_de_unidade=2tr",
-	"seminários":          "&tipo_de_documento_de_unidade=3sm",
-	"exames":              "&tipo_de_documento_de_unidade=ex",
-	"testes":              "&tipo_de_documento_de_unidade=t",
-	"textos-de-apoio":     "&tipo_de_documento_de_unidade=ta",
-	"outros":              "&tipo_de_documento_de_unidade=xot",
+	"Material-multimédia": "&tipo_de_documento_de_unidade=0ac",
+	"Problemas":           "&tipo_de_documento_de_unidade=1e",
+	"Protocolos":          "&tipo_de_documento_de_unidade=2tr",
+	"Seminários":          "&tipo_de_documento_de_unidade=3sm",
+	"Exames":              "&tipo_de_documento_de_unidade=ex",
+	"Testes":              "&tipo_de_documento_de_unidade=t",
+	"Textos-de-apoio":     "&tipo_de_documento_de_unidade=ta",
+	"Outros":              "&tipo_de_documento_de_unidade=xot",
 }
 
 type Class struct {
@@ -54,7 +60,7 @@ type User struct {
 
 func main() {
 	var (
-		docsPath  = flag.String("docs", ".."+sep+"docs", "path to docs folder relative to executable")
+		docsPath  = flag.String("docs", filepath.Join("..", "docs"), "path to docs folder relative to executable")
 		filesPath = flag.String("files", "..", "path to directory relative to executable where files will be stored")
 	)
 	flag.Parse()
@@ -75,16 +81,16 @@ func main() {
 }
 
 func setup(user *User, classes map[string]Class, docsPath string) (Class, string, int, error) {
-	if err := loadConfig(docsPath+userInfoPath, user); err != nil {
+	if err := loadConfig(filepath.Join(docsPath, userInfoPath), user); err != nil {
 		return Class{}, "", 0, err
 	}
-	if err := loadConfig(docsPath+classInfoPath, &classes); err != nil {
+	if err := loadConfig(filepath.Join(docsPath, classInfoPath), &classes); err != nil {
 		return Class{}, "", 0, err
 	}
 
 	// user number == -1 if not yet set
-	if user.Number < 0 {
-		fmt.Println("Getting user url number and saving for future use...")
+	if user.Number == -1 {
+		fmt.Println("[Getting user url number and saving for future use]")
 		num, err := getUserURLNum(*user)
 		if err != nil {
 			return Class{}, "", 0, err
@@ -92,7 +98,7 @@ func setup(user *User, classes map[string]Class, docsPath string) (Class, string
 
 		user.Number = num
 
-		if err = updateUserConfig(*user, docsPath+userInfoPath); err != nil {
+		if err = updateUserConfig(*user, filepath.Join(docsPath, userInfoPath)); err != nil {
 			return Class{}, "", 0, err
 		}
 	}
@@ -101,16 +107,17 @@ func setup(user *User, classes map[string]Class, docsPath string) (Class, string
 }
 
 func run(user User, class Class, year int, className, filesPath string) error {
-	fmt.Println("Starting...")
+	// fmt.Println("Starting...")
 
 	// just in case a file takes longer to flush to disk
 	var wg sync.WaitGroup
 
-	classFilesPath := filesPath + sep + className
+	classFilesPath := filepath.Join(filesPath, className)
 	if err := makeDir(classFilesPath); err != nil {
 		return err
 	}
 
+	count := 1
 	for k, v := range tableFields {
 		resp, docs, err := getDocsInSection(makeRequestURL(year, user, class, v), user)
 		if err != nil {
@@ -120,36 +127,83 @@ func run(user User, class Class, year int, className, filesPath string) error {
 		cookie := getCookie(resp)
 		resp.Body.Close()
 
-		if len(docs) > 0 {
-			fmt.Printf("Getting files in %s:\n", k)
+		if len(docs) == 0 {
+			printProgress(k, count, 0, 0, 0)
+			count++
+			continue
+		}
 
-			dirPath := classFilesPath + sep + k
-			if err := makeDir(dirPath); err != nil {
+		dirPath := filepath.Join(classFilesPath, k)
+		if err := makeDir(dirPath); err != nil {
+			return err
+		}
+
+		numNewFiles := 0
+		for i, d := range docs {
+			docURL := string(d)
+
+			filename, err := parseFilenameFromURL(docURL)
+			if err != nil {
+				return err
+			}
+			if fileAlreadyPresent(dirPath, filename) {
+				printProgress(k, count, numNewFiles, i+1, len(docs))
+				continue
+			}
+
+			numNewFiles++
+
+			resp, err := getFileData(docURL, cookie)
+			if err != nil {
 				return err
 			}
 
-			for _, d := range docs {
-				resp, filename, err := getFileData(string(d), cookie)
-				if err != nil {
-					return err
-				}
+			printProgress(k, count, numNewFiles, i+1, len(docs))
 
-				wg.Add(1)
-				go func(r *http.Response, dp, fn string) {
-					defer wg.Done()
-					if err = writeDataToDisk(r, dp, fn); err != nil {
-						panic(fmt.Sprint("error: ", err))
-					}
-				}(resp, dirPath, filename)
-			}
-		} else {
-			fmt.Printf("No documents present in %s.\n", k)
+			wg.Add(1)
+			go func(r *http.Response, dp, fn string) {
+				defer wg.Done()
+				if err = writeDataToDisk(r, dp, fn); err != nil {
+					panic(fmt.Sprint("error: ", err))
+				}
+			}(resp, dirPath, filename)
 		}
+
+		count++
 	}
-	fmt.Println("Finishing...")
 	wg.Wait()
 
 	return nil
+}
+
+func fileAlreadyPresent(dirPath, filename string) bool {
+	_, err := os.Stat(filepath.Join(dirPath, filename))
+	return !os.IsNotExist(err)
+}
+
+func printProgress(section string, count, numNewFiles, n, total int) {
+	padding := strings.Repeat(" ", len([]rune("material-multimédia"))+1-len([]rune(section)))
+
+	if total == 0 {
+		fmt.Printf("%s%s[%d/8] (no files)\n", section, padding, count)
+		return
+	}
+
+	percent := float32(n) / float32(total)
+	numBlocks := int(percent * float32(progressBarLen))
+
+	fmt.Printf("%s%s[%d/8] %s %.2f%% (%d new files)\r",
+		section,
+		padding,
+		count,
+		strings.Repeat(string(0x2588), numBlocks)+strings.Repeat(" ", progressBarLen-numBlocks),
+		percent*100,
+		numNewFiles,
+	)
+
+	if percent == 1 {
+		fmt.Println()
+	}
 }
 
 func getDocsInSection(url string, user User) (*http.Response, [][]byte, error) {
@@ -208,7 +262,7 @@ func updateUserConfig(user User, path string) error {
 }
 
 func parseArgs(args []string, classes map[string]Class) (Class, string, int, error) {
-	// flag.Args() does not include executable name
+	// flag.Args() does not include executable's name
 	if len(args) < 2 {
 		return Class{}, "", 0, fmt.Errorf("missing argument(s) (ex.: ./bin/clipped-linux ia 22)")
 	}
@@ -246,34 +300,36 @@ func makeDir(name string) error {
 	return nil
 }
 
-func getFileData(fileURL string, cookie http.Cookie) (*http.Response, string, error) {
+func parseFilenameFromURL(fileURL string) (string, error) {
 	matches := regexp.MustCompile(fileExp).FindStringSubmatch(fileURL)
 	if len(matches) < 2 {
-		return nil, "", fmt.Errorf("could not parse filename from url (%s): ", fileURL)
+		return "", fmt.Errorf("could not parse filename from url (%s): ", fileURL)
 	}
-	filename := string(matches[1])
 
+	return string(matches[1]), nil
+}
+
+func getFileData(fileURL string, cookie http.Cookie) (*http.Response, error) {
 	req, err := http.NewRequest("GET", clipURL+fileURL, nil)
 	if err != nil {
-		return nil, "", fmt.Errorf("creating request for %s: %w", filename, err)
+		return nil, fmt.Errorf("creating request with url %s: %w", fileURL, err)
 	}
 	req.Close = true
 	req.AddCookie(&cookie)
 
-	fmt.Printf("\tDownloading %s...\n", filename)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("performing request for %s: %w", filename, err)
+		return nil, fmt.Errorf("performing request with url %s: %w", fileURL, err)
 	}
 
-	return resp, filename, nil
+	return resp, nil
 }
 
 func writeDataToDisk(resp *http.Response, dir, filename string) error {
 	defer resp.Body.Close()
 
-	fp, err := os.Create(dir + sep + filename)
+	fp, err := os.Create(filepath.Join(dir, filename))
 	if err != nil {
 		return fmt.Errorf("creating file %s: %w", filename, err)
 	}
@@ -295,15 +351,17 @@ func getCookie(resp *http.Response) http.Cookie {
 	}
 }
 
+// try to perform a request and retry it there is a timeout
 func repeatOnTimeout(client *http.Client, req *http.Request, data string) (*http.Response, error) {
 	resp, err := client.Do(req)
+
 	// try for five times tops
 	for i := 0; err != nil && os.IsTimeout(err) && i < 5; i++ {
-		fmt.Printf("[Timeout: trying again (%d of 5 tries).]\n", i+1)
-		// body is io.ReaderCloser and must be reset
+		// body is an io.ReaderCloser and must be reset
 		if data != "" {
 			req.Body = io.NopCloser(strings.NewReader(data))
 		}
+
 		resp, err = client.Do(req)
 	}
 
@@ -313,7 +371,7 @@ func repeatOnTimeout(client *http.Client, req *http.Request, data string) (*http
 func requestAndAuth(urlStr string, user User) (*http.Response, error) {
 	client := &http.Client{
 		Transport: &http.Transport{
-			ResponseHeaderTimeout: time.Second * 3,
+			ResponseHeaderTimeout: timeout,
 		},
 	}
 
