@@ -27,6 +27,7 @@ const (
 	clipURL   = "https://clip.unl.pt"
 	utenteURL = clipURL + "/utente/eu"
 	baseURL   = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=%d&per%%EDodo_lectivo=%d&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d%s"
+	fieldURL  = "&tipo_de_documento_de_unidade="
 
 	docExp  = `/objecto?[^"]*`
 	fileExp = "(?:oin=)(.*)"
@@ -34,18 +35,6 @@ const (
 
 	progressBarLen = 20
 )
-
-// go does not allow const maps :(
-var tableFields = map[string]string{
-	"Material-multimédia": "&tipo_de_documento_de_unidade=0ac",
-	"Problemas":           "&tipo_de_documento_de_unidade=1e",
-	"Protocolos":          "&tipo_de_documento_de_unidade=2tr",
-	"Seminários":          "&tipo_de_documento_de_unidade=3sm",
-	"Exames":              "&tipo_de_documento_de_unidade=ex",
-	"Testes":              "&tipo_de_documento_de_unidade=t",
-	"Textos-de-apoio":     "&tipo_de_documento_de_unidade=ta",
-	"Outros":              "&tipo_de_documento_de_unidade=xot",
-}
 
 type Class struct {
 	Semester int `json: "semester"`
@@ -58,6 +47,10 @@ type User struct {
 	Password string `json: "password"`
 }
 
+type Field struct {
+	name, code string
+}
+
 func main() {
 	var (
 		docsPath  = flag.String("docs", filepath.Join("..", "docs"), "path to docs folder relative to executable")
@@ -68,6 +61,16 @@ func main() {
 	var (
 		user    = User{}
 		classes = make(map[string]Class)
+		fields  = []Field{
+			{"Material-multimédia", "0ac"},
+			{"Problemas", "1e"},
+			{"Protocolos", "2tr"},
+			{"Seminários", "3sm"},
+			{"Exames", "ex"},
+			{"Testes", "t"},
+			{"Textos-de-apoio", "ta"},
+			{"Outros", "xot"},
+		}
 	)
 
 	class, className, year, err := setup(&user, classes, *docsPath)
@@ -75,7 +78,7 @@ func main() {
 		log.Fatal("error: ", err)
 	}
 
-	if err := run(user, class, year, className, *filesPath); err != nil {
+	if err := run(user, class, year, fields, className, *filesPath); err != nil {
 		log.Fatal("error: ", err)
 	}
 }
@@ -106,7 +109,7 @@ func setup(user *User, classes map[string]Class, docsPath string) (Class, string
 	return parseArgs(flag.Args(), classes)
 }
 
-func run(user User, class Class, year int, className, filesPath string) error {
+func run(user User, class Class, year int, fields []Field, className, filesPath string) error {
 	// fmt.Println("Starting...")
 
 	// just in case a file takes longer to flush to disk
@@ -117,9 +120,8 @@ func run(user User, class Class, year int, className, filesPath string) error {
 		return err
 	}
 
-	count := 1
-	for k, v := range tableFields {
-		resp, docs, err := getDocsInSection(makeRequestURL(year, user, class, v), user)
+	for i, field := range fields {
+		resp, docs, err := getDocsInSection(makeRequestURL(year, user, class, fieldURL+field.code), user)
 		if err != nil {
 			return err
 		}
@@ -128,18 +130,17 @@ func run(user User, class Class, year int, className, filesPath string) error {
 		resp.Body.Close()
 
 		if len(docs) == 0 {
-			printProgress(k, count, 0, 0, 0)
-			count++
+			printProgress(field.name, i+1, 0, 0, 0)
 			continue
 		}
 
-		dirPath := filepath.Join(classFilesPath, k)
+		dirPath := filepath.Join(classFilesPath, field.name)
 		if err := makeDir(dirPath); err != nil {
 			return err
 		}
 
 		numNewFiles := 0
-		for i, d := range docs {
+		for j, d := range docs {
 			docURL := string(d)
 
 			filename, err := parseFilenameFromURL(docURL)
@@ -147,7 +148,7 @@ func run(user User, class Class, year int, className, filesPath string) error {
 				return err
 			}
 			if fileAlreadyPresent(dirPath, filename) {
-				printProgress(k, count, numNewFiles, i+1, len(docs))
+				printProgress(field.name, i+1, numNewFiles, j+1, len(docs))
 				continue
 			}
 
@@ -158,7 +159,7 @@ func run(user User, class Class, year int, className, filesPath string) error {
 				return err
 			}
 
-			printProgress(k, count, numNewFiles, i+1, len(docs))
+			printProgress(field.name, i+1, numNewFiles, j+1, len(docs))
 
 			wg.Add(1)
 			go func(r *http.Response, dp, fn string) {
@@ -168,8 +169,6 @@ func run(user User, class Class, year int, className, filesPath string) error {
 				}
 			}(resp, dirPath, filename)
 		}
-
-		count++
 	}
 	wg.Wait()
 
