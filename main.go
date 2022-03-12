@@ -33,6 +33,9 @@ const (
 	fileExp = "(?:oin=)(.*)"
 	numExp  = `(?:aluno=)([\d]+)`
 
+	docsFlagInfo = "*relative* path to docs folder from executable\n(by default it assumes it's being run from /bin):"
+	filesFlagInfo = "absolute (note: use /Users/username instead of ~) or relative path to files folder from executable\n(by default it assumes it's being run from /bin):"
+
 	progressBarLen = 20
 )
 
@@ -53,8 +56,8 @@ type Field struct {
 
 func main() {
 	var (
-		docsPath  = flag.String("docs", filepath.Join("..", "docs"), "path to docs folder relative to executable")
-		filesPath = flag.String("files", "..", "path to directory relative to executable where files will be stored")
+		docsPath  = flag.String("docs", filepath.Join("..", "docs"), docsFlagInfo)
+		filesPath = flag.String("files", "..", filesFlagInfo)
 	)
 	flag.Parse()
 
@@ -110,8 +113,6 @@ func setup(user *User, classes map[string]Class, docsPath string) (Class, string
 }
 
 func run(user User, class Class, year int, fields []Field, className, filesPath string) error {
-	// fmt.Println("Starting...")
-
 	// just in case a file takes longer to flush to disk
 	var wg sync.WaitGroup
 
@@ -285,7 +286,15 @@ func makeRequestURL(year int, user User, class Class, tableField string) string 
 	return fmt.Sprintf(baseURL, clipURL, year, class.Semester, user.Number, class.Code, tableField)
 }
 
-func makeDir(name string) error {
+func makeDir(path string) error {
+	dir, name := filepath.Dir(path), filepath.Base(path)
+
+	owd, err := changeDir(dir)
+	if err != nil {
+		return err
+	}
+	defer changeDir(owd)
+
 	// create dir
 	if err := os.MkdirAll(name, 0420); err != nil {
 		return fmt.Errorf("creating directory for class' files: %w", err)
@@ -325,14 +334,37 @@ func getFileData(fileURL string, cookie http.Cookie) (*http.Response, error) {
 	return resp, nil
 }
 
+// returns the old working diretory
+func changeDir(dir string) (string, error) {
+	owd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getting pwd: %w", err)
+	}
+
+	if err := os.Chdir(dir); err != nil {
+		return "", fmt.Errorf("changing directories: %w", err)
+	}
+
+	return owd, nil
+}
+
 func writeDataToDisk(resp *http.Response, dir, filename string) error {
 	defer resp.Body.Close()
 
-	fp, err := os.Create(filepath.Join(dir, filename))
+	owd, err := changeDir(dir)
+	if err != nil {
+		return err
+	}
+
+	fp, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("creating file %s: %w", filename, err)
 	}
 	defer fp.Close()
+
+	// changes dir before the other goroutine starts
+	// TODO: should maybe use channels or something to make sure it doesn't break
+	_, _ = changeDir(owd)
 
 	_, err = io.Copy(fp, resp.Body)
 	if err != nil {
