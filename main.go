@@ -24,7 +24,7 @@ const (
 	userInfoPath  = "user.json"
 	classInfoPath = "classes.json"
 
-	clipURL   = "https://clip.unl.pt"
+	clipURL   = "https://clip.fct.unl.pt"
 	utenteURL = clipURL + "/utente/eu"
 	baseURL   = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=%d&per%%EDodo_lectivo=%d&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d%s"
 	fieldURL  = "&tipo_de_documento_de_unidade="
@@ -33,8 +33,8 @@ const (
 	fileExp = "(?:oin=)(.*)"
 	numExp  = `(?:aluno=)([\d]+)`
 
-	docsFlagInfo = "*relative* path to docs folder from executable\n(by default it assumes it's being run from /bin):"
-	filesFlagInfo = "absolute (note: use /Users/username instead of ~) or relative path to files folder from executable\n(by default it assumes it's being run from /bin):"
+	configFlagInfo = "*relative* path to docs folder from executable\n(by default it assumes it's being run from /bin):"
+	filesFlagInfo  = "absolute (note: use /Users/username instead of ~) or relative path to files folder from executable\n(by default it assumes it's being run from /bin):"
 
 	progressBarLen = 20
 )
@@ -56,8 +56,8 @@ type Field struct {
 
 func main() {
 	var (
-		docsPath  = flag.String("docs", filepath.Join("..", "docs"), docsFlagInfo)
-		filesPath = flag.String("files", "..", filesFlagInfo)
+		configPath = flag.String("config", filepath.Join("..", "config"), configFlagInfo)
+		filesPath  = flag.String("files", "..", filesFlagInfo)
 	)
 	flag.Parse()
 
@@ -76,7 +76,7 @@ func main() {
 		}
 	)
 
-	class, className, year, err := setup(&user, classes, *docsPath)
+	class, className, year, err := setup(&user, classes, *configPath)
 	if err != nil {
 		log.Fatal("error: ", err)
 	}
