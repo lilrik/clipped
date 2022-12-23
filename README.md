@@ -53,7 +53,7 @@ Run `<executable> -h` to get a short description of the available flags.
 2. Go to `docs/classes.json` and put the number, the class name (whatever you want) and semester (1 or 2 for winter or summer, respectively) in their respective fields.
 
 ## Building
-This project has no external dependencies. Just use `go build` (and don't forget to set the flags if running from root).
+This project has no external dependencies. Install Go and run `make`.
 
 ## Disclaimer
 Please don't abuse the servers and I'm not responsible if you do.
