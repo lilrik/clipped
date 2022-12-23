@@ -104,8 +104,6 @@ func writeDocumentToDisk(resp *http.Response, dir, filename string) error {
 	}
 	defer fp.Close()
 
-	// changes dir before the other goroutine starts
-	// TODO: should maybe use channels or something to make sure it doesn't break
 	_, _ = changeDir(owd)
 
 	_, err = io.Copy(fp, resp.Body)
