@@ -1,2 +1,7 @@
 *.swp
 .DS_Store
+run.sh
+config/real.json
+config/def.json
+bin/
+clipped

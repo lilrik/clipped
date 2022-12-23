@@ -21,9 +21,6 @@ const (
 	timeout     = time.Second * 4
 	writeRights = 0777
 
-	userInfoPath  = "user.json"
-	classInfoPath = "classes.json"
-
 	clipURL   = "https://clip.fct.unl.pt"
 	utenteURL = clipURL + "/utente/eu"
 	baseURL   = "%s/utente/eu/aluno/ano_lectivo/unidades/unidade_curricular/actividade/documentos?tipo_de_per%%EDodo_lectivo=s&ano_lectivo=%d&per%%EDodo_lectivo=%d&aluno=%d&institui%%E7%%E3o=97747&unidade_curricular=%d%s"
@@ -35,20 +32,10 @@ const (
 
 	configFlagInfo = "*relative* path to docs folder from executable\n(by default it assumes it's being run from /bin):"
 	filesFlagInfo  = "absolute (note: use /Users/username instead of ~) or relative path to files folder from executable\n(by default it assumes it's being run from /bin):"
+	embedFlagInfo  = "set this to true if you compiled it yourself and therefore don't need to load the configs from external files"
 
 	progressBarLen = 20
 )
-
-type Class struct {
-	Semester int `json: "semester"`
-	Code     int `json: "code"`
-}
-
-type User struct {
-	Number   int    `json: "number"`
-	Name     string `json: "name"`
-	Password string `json: "password"`
-}
 
 type Field struct {
 	name, code string
@@ -56,8 +43,9 @@ type Field struct {
 
 func main() {
 	var (
-		configPath = flag.String("config", filepath.Join("..", "config"), configFlagInfo)
-		filesPath  = flag.String("files", "..", filesFlagInfo)
+		configPath = flag.String("config", "config", configFlagInfo)
+		filesPath  = flag.String("files", ".", filesFlagInfo)
+		isEmbed    = flag.Bool("embed", false, embedFlagInfo)
 	)
 	flag.Parse()
 
@@ -76,47 +64,23 @@ func main() {
 		}
 	)
 
-	class, className, year, err := setup(&user, classes, *configPath)
+	class, year, err := setup(&user, classes, *configPath, *isEmbed)
+	check(err)
+	check(run(user, class, year, fields, *filesPath))
+}
+
+// only use in main
+func check(err error) {
 	if err != nil {
 		log.Fatal("error: ", err)
 	}
-
-	if err := run(user, class, year, fields, className, *filesPath); err != nil {
-		log.Fatal("error: ", err)
-	}
 }
 
-func setup(user *User, classes map[string]Class, docsPath string) (Class, string, int, error) {
-	if err := loadConfig(filepath.Join(docsPath, userInfoPath), user); err != nil {
-		return Class{}, "", 0, err
-	}
-	if err := loadConfig(filepath.Join(docsPath, classInfoPath), &classes); err != nil {
-		return Class{}, "", 0, err
-	}
-
-	// user number == -1 if not yet set
-	if user.Number == -1 {
-		fmt.Println("[Getting user url number and saving for future use]")
-		num, err := getUserURLNum(*user)
-		if err != nil {
-			return Class{}, "", 0, err
-		}
-
-		user.Number = num
-
-		if err = updateUserConfig(*user, filepath.Join(docsPath, userInfoPath)); err != nil {
-			return Class{}, "", 0, err
-		}
-	}
-
-	return parseArgs(flag.Args(), classes)
-}
-
-func run(user User, class Class, year int, fields []Field, className, filesPath string) error {
+func run(user User, class Class, year int, fields []Field, filesPath string) error {
 	// just in case a file takes longer to flush to disk
 	var wg sync.WaitGroup
 
-	classFilesPath := filepath.Join(filesPath, className)
+	classFilesPath := filepath.Join(filesPath, class.name)
 	if err := makeDir(classFilesPath); err != nil {
 		return err
 	}
@@ -259,27 +223,6 @@ func updateUserConfig(user User, path string) error {
 	}
 
 	return nil
-}
-
-func parseArgs(args []string, classes map[string]Class) (Class, string, int, error) {
-	// flag.Args() does not include executable's name
-	if len(args) < 2 {
-		return Class{}, "", 0, fmt.Errorf("missing argument(s) (ex.: ./bin/clipped-linux ia 22)")
-	}
-
-	var year int
-	if _, err := fmt.Sscan(args[1], &year); err != nil {
-		return Class{}, "", 0, fmt.Errorf("parsing year value: %w", err)
-	}
-	year += 2000
-
-	className := args[0]
-	class, ok := classes[className]
-	if !ok {
-		return Class{}, "", 0, fmt.Errorf("class not present in config file")
-	}
-
-	return class, className, year, nil
 }
 
 func makeRequestURL(year int, user User, class Class, tableField string) string {
@@ -453,17 +396,4 @@ func didAuth(r *http.Response) (bool, error) {
 	// if no password is provided, the response is (almost) equal; this case should never happen
 	// if an incorrect password is provided, we get an error message
 	return !matched, nil
-}
-
-func loadConfig(path string, dest interface{}) error {
-	info, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading from file %s to load config: %w", path, err)
-	}
-
-	if err := json.Unmarshal(info, dest); err != nil {
-		return fmt.Errorf("decoding json data from config file %s: %w", path, err)
-	}
-
-	return nil
 }
