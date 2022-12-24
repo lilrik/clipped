@@ -1,7 +1,7 @@
-DEBUGLDFLAGS = -ldflags=-compressdwarf=false
-FINALLDFLAGS = -ldflags "-s -w"
-GCFLAGS = -gcflags="all=-N -l"
 SRCDIR = .
+GCFLAGS = -gcflags="all=-N -l"
+FINALLDFLAGS = -ldflags "-s -w"
+DEBUGLDFLAGS = -ldflags=-compressdwarf=false
 
 all: build
 
@@ -18,6 +18,7 @@ test: build
 	rm -rf ia
 
 release:
+	mkdir -p bin
 	GOOS=windows GOARCH=amd64 go build -o clipped-windows.exe $(FINALLDFLAGS) $(SRCDIR)
 	GOOS=linux GOARCH=amd64 go build -o clipped-linux $(FINALLDFLAGS) $(SRCDIR)
 	GOOS=darwin GOARCH=amd64 go build -o clipped-mac-intel $(FINALLDFLAGS) $(SRCDIR)
