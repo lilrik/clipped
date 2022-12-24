@@ -27,12 +27,12 @@ Textos-de-apoio     [8/8] (no files)
       └── teste2A_sol.pdf
 ```
 ## Why
-Having to traverse through CLIP everytime I need to get some file posted by a professor is a massive pain. It's slow and requires way too much clicking around. We do have the option of making and using shortcuts but even then, it's still annoying to deal with.
+Having to traverse through CLIP everytime I need to get some file posted by a professor is a massive pain. It's slow and requires way too much clicking around. We do have the option of making shortcuts but even then, it's still annoying to deal with.
 Furthermore, the notification system is ancient.
 
 ## How
 1. Go to `docs/user.json` and set your CLIP credentials (username and password) in their respective fields. **Don't change the number field**.
-2. Run your platform's executable from inside the repo's folder or compile it yourself. (See the examples below.)
+2. Run your platform's executable from inside the repo's folder or compile it yourself.
 
 ## Run
 By default (change it with the flags):
@@ -45,7 +45,7 @@ By default (change it with the flags):
 # the <year> is the last two digits only (2022 -> 22)
 
 # ex.: getting the IA 2022 class files:
-./clipped-linux ia 22
+clipped-linux ia 22
 ```
 
 ### Flags
