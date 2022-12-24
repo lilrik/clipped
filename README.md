@@ -51,8 +51,15 @@ By default (change it with the flags):
 ### Flags
 ###### Run `<executable> -h` to get a short description of the available flags.
 There are two options to run the executable from anywhere:
-1. Compile it yourself and set `-embed=true`.
+1. Compile it yourself and set `-embed=true`. (Recommended.)
 2. Set the `config` and `files` flag to the path to those folders **relative** from the executable.
+
+To run it as a regular CLI program (assuming you picked 1.):
+```bash
+# in your terminal config file (~/.bashrc for example)
+export PATH=your/path/to/executable/folder:$PATH # add to path to run from anywhere
+alias clipped="clipped -embed=true"              # recommended for less typing
+```
 
 ## Build
 This project has no external dependencies. Install Go and run `make`.
