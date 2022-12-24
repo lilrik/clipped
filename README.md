@@ -51,7 +51,7 @@ clipped-linux ia 22
 ### Flags
 ###### Run `<executable> -h` to get a short description of the available flags.
 There are two options to run the executable from anywhere:
-1. Compile it yourself and set `-embed=true`. (Recommended.)
+1. Compile it yourself (with the right config) and set `-embed=true`. (Recommended.)
 2. Set the `config` and `files` flag to the path to those folders **relative** from the executable.
 
 To run it as a regular CLI program (assuming you picked 1.):
