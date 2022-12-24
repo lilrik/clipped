@@ -54,12 +54,12 @@ There are two options to run the executable from anywhere:
 1. Compile it yourself and set `-embed=true`.
 2. Set the `config` and `files` flag to the path to those folders **relative** from the executable.
 
+## Build
+This project has no external dependencies. Install Go and run `make`.
+
 ## Add more classes
 1. Go to class' CLIP page and, from the URL, copy the number in the `unidade=XXXX` field.
 2. Go to `docs/classes.json` and set the number, class name (whatever you want) and semester (`1` for winter, `2` for summer).
-
-## Build
-This project has no external dependencies. Install Go and run `make`.
 
 ## Disclaimer
 Please don't abuse the servers and I'm not responsible if you do.
